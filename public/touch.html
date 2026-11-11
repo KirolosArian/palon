@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>PALON - اختبار اللمس</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #fdf9d8; font-family: Tahoma, Arial, sans-serif; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #info { position: absolute; top: 0; left: 0; right: 0; padding: 8px; font: 12px/1.45 monospace; direction: ltr; background: rgba(255,255,255,.9); border-bottom: 3px solid #2b3440; white-space: pre-wrap; z-index: 3; }
+  #title { font: bold 15px Tahoma; direction: rtl; text-align: center; margin-bottom: 4px; }
+  .btn { position: absolute; border-radius: 50%; border: 5px solid #2b3440; background: #6f8fb0; color: #fff; font: bold 20px Tahoma;
+    display: grid; place-items: center; z-index: 1; pointer-events: none; }
+  .btn.on { background: #e8202a; }
+  .dot { position: absolute; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; border: 3px solid #000; z-index: 2; pointer-events: none;
+    font: bold 14px monospace; display: grid; place-items: center; color: #000; }
+</style>
+</head>
+<body>
+<div id="info"><div id="title">اختبار اللمس: امسك "نفخ" وبعدين دوس "شمال" وخد سكرين شوت</div><span id="log"></span></div>
+<div class="btn" id="L" style="left:26px;bottom:22px;width:66px;height:66px">◀</div>
+<div class="btn" id="R" style="left:102px;bottom:22px;width:66px;height:66px">▶</div>
+<div class="btn" id="U" style="right:14px;bottom:96px;width:88px;height:88px">⏫</div>
+<div class="btn" id="D" style="right:23px;bottom:18px;width:70px;height:70px">⏬</div>
+<script>
+const log = [], te = { start: 0, move: 0, end: 0, cancel: 0 }, pe = { down: 0, move: 0, up: 0, cancel: 0 };
+const ptr = new Map(), dots = new Map(), colors = ['#ffd23f', '#5aa9ff', '#3fd06b', '#ff8ad8', '#ff9a3c'];
+let lastTouches = [];
+function inside(el, x, y) { const r = el.getBoundingClientRect(), p = 14; return x > r.left - p && x < r.right + p && y > r.top - p && y < r.bottom + p; }
+function render() {
+  // dots for pointer events
+  for (const [id, d] of dots) if (!ptr.has(id)) { d.remove(); dots.delete(id); }
+  let i = 0;
+  for (const [id, p] of ptr) {
+    let d = dots.get(id);
+    if (!d) { d = document.createElement('div'); d.className = 'dot'; d.style.background = colors[i % colors.length]; document.body.appendChild(d); dots.set(id, d); }
+    d.style.left = p.x + 'px'; d.style.top = p.y + 'px'; d.textContent = 'P' + id; i++;
+  }
+  for (const id of ['L', 'R', 'U', 'D']) {
+    const el = document.getElementById(id);
+    el.classList.toggle('on', [...ptr.values()].some(p => inside(el, p.x, p.y)));
+  }
+  document.getElementById('log').textContent =
+    'screen ' + innerWidth + 'x' + innerHeight + '  maxTouchPoints=' + navigator.maxTouchPoints + '\n' +
+    navigator.userAgent.slice(0, 110) + '\n' +
+    'touch events  start:' + te.start + ' move:' + te.move + ' end:' + te.end + ' cancel:' + te.cancel + '\n' +
+    'pointer events down:' + pe.down + ' move:' + pe.move + ' up:' + pe.up + ' cancel:' + pe.cancel + '\n' +
+    'fingers now (pointer): ' + ptr.size + '   (touch list): ' + lastTouches.length + '\n' +
+    'touch list: ' + lastTouches.map(t => '#' + t.identifier + '(' + Math.round(t.clientX) + ',' + Math.round(t.clientY) + ')').join(' ') + '\n' +
+    '--- last events ---\n' + log.slice(0, 12).join('\n');
+}
+function add(s) { log.unshift((performance.now() / 1000).toFixed(2) + ' ' + s); if (log.length > 30) log.length = 30; }
+document.addEventListener('pointerdown', e => { pe.down++; ptr.set(e.pointerId, { x: e.clientX, y: e.clientY }); try { e.target.setPointerCapture(e.pointerId); } catch (_) {} add('P down  #' + e.pointerId + ' ' + e.pointerType + ' (' + Math.round(e.clientX) + ',' + Math.round(e.clientY) + ')'); render(); });
+document.addEventListener('pointermove', e => { pe.move++; const p = ptr.get(e.pointerId); if (p) { p.x = e.clientX; p.y = e.clientY; } render(); });
+document.addEventListener('pointerup', e => { pe.up++; ptr.delete(e.pointerId); add('P up    #' + e.pointerId); render(); });
+document.addEventListener('pointercancel', e => { pe.cancel++; ptr.delete(e.pointerId); add('P CANCEL #' + e.pointerId + '  <<<'); render(); });
+for (const t of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) document.addEventListener(t, e => {
+  te[t.slice(5)]++; lastTouches = [...e.touches];
+  if (t !== 'touchmove') add('T ' + t.slice(5) + ' n=' + e.touches.length + ' changed=' + [...e.changedTouches].map(c => '#' + c.identifier).join(','));
+  if (e.cancelable) e.preventDefault(); render();
+}, { passive: false });
+render();
+</script>
+</body>
+</html>
