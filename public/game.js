@@ -1344,7 +1344,7 @@ function onSocketClosed() {
 }
 
 /* ---- opponent / spectated balloons: replayed from their own recording (smooth, same tilt & size) ---- */
-function makeGhost() { return { buf: [], lat: [], clockOffT: undefined, delay: undefined, delayT: 120, od: null }; }
+function makeGhost() { return { buf: [], lat: [], clockOffT: undefined, delay: undefined, delayT: 120, od: null, lead: 0.08 }; }
 function ghostSample(G, o, recv) {
   const buf = G.buf, last = buf[buf.length - 1];
   if (last && o.ct <= last.t) return;
@@ -1357,7 +1357,7 @@ function ghostSample(G, o, recv) {
   let mn = Infinity; for (const l of G.lat) if (l.off < mn) mn = l.off;
   G.clockOffT = mn;
   const j = G.lat.map(l => l.off - mn).sort((a, b) => a - b);
-  G.delayT = clamp(j[Math.floor((j.length - 1) * 0.95)] + 30, 40, 450);
+  G.delayT = clamp(j[Math.floor((j.length - 1) * 0.88)] + 25, 30, 450);
 }
 function ghostFrame(G, dt) {
   const buf = G.buf;
@@ -1372,13 +1372,15 @@ function ghostFrame(G, dt) {
   if (b) {
     const u = clamp((ts - a.t) / Math.max(1, b.t - a.t), 0, 1);
     st = { x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u), p: lerp(a.p, b.p, u), tl: lerp(a.tl, b.tl, u), k: a.k, alive: a.alive && b.alive, lvl: a.lvl };
+    // small look-ahead: push the replay a little toward "now" along the current movement
+    if (st.alive) { const dtb = Math.max(1, b.t - a.t) / 1000, lead = G.lead; st.x += (b.x - a.x) / dtb * lead; st.y += (b.y - a.y) / dtb * lead; }
   } else {
-    const ex = clamp((ts - a.t) / 1000, 0, 0.25);
+    const ex = clamp((ts - a.t) / 1000 + G.lead, 0, 0.3);
     st = { x: a.x + (a.alive ? a.vx * ex : 0), y: a.y + (a.alive ? a.vy * ex : 0), p: a.p, tl: a.tl, k: a.k, alive: a.alive, lvl: a.lvl };
   }
   const od = G.od;
   if (od && od.alive && st.alive && Math.abs(od.y - st.y) < 300) {
-    const k = Math.min(1, dt * 22);
+    const k = Math.min(1, dt * 30);
     st.x = od.x + (st.x - od.x) * k; st.y = od.y + (st.y - od.y) * k; st.tl = od.tl + (st.tl - od.tl) * k; st.p = od.p + (st.p - od.p) * k;
   }
   G.od = st;
@@ -1398,9 +1400,10 @@ function onMsg(m) {
       hideOverlay(); state = 'vscount';
       $('hud').classList.remove('hidden'); $('controls').classList.remove('hidden');
       updateHud(true); updateOppHud();
-      clearInterval(NET.sendTimer); NET.sendTimer = setInterval(sendState, 50);
+      clearInterval(NET.sendTimer); NET.sendTimer = setInterval(sendState, 33);
       break;
     }
+    case 'pong': if (m.ct) { const r = performance.now() - m.ct; NET.ping = NET.ping ? Math.round(NET.ping * 0.7 + r * 0.3) : Math.round(r); updateOppHud(); } break;
     case 'opp': if (NET.on) { NET.opp = m; ghostSample(NET.g, m, performance.now()); updateOppHud(); } break;
     case 'watchers': NET.watchers = m.n; updateOppHud(); break;
     case 'over':
@@ -1432,6 +1435,7 @@ function onMsg(m) {
 }
 
 /* ---- racing ---- */
+let pingTimer = setInterval(() => { if (NET.on && NET.started) wsSend({ t: 'ping', ct: Math.round(performance.now()) }); }, 2000);
 function sendState() {
   if (!NET.on || !NET.started || NET.done) return;
   const B = world.B;
@@ -1477,6 +1481,7 @@ function updateOppHud() {
   let t = '🆚 ' + NET.oppName, ahead = false;
   if (o) { ahead = o.lvl > mine || (o.lvl === mine && o.y < world.B.y); t += ': ليفل ' + (o.lvl + 1) + (ahead ? ' ⬆' : ' ⬇'); }
   if (NET.watchers) t += '  👀' + NET.watchers;
+  if (NET.ping) t += '  📶' + NET.ping + 'ms';
   el.textContent = t;
   el.classList.toggle('ahead', ahead);
   el.classList.remove('hidden');
@@ -1627,7 +1632,7 @@ function showMenu() {
       <button class="btn ghost" data-act="how">إزاي ألعب؟</button>
       <button class="btn ghost" data-act="mute">${save.muted ? '🔇 الصوت' : '🔊 الصوت'}</button>
     </div>
-    <p class="small">نسخة 24</p>`);
+    <p class="small">نسخة 25</p>`);
 }
 function showSolo() {
   state = 'solo';

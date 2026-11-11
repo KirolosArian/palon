@@ -30,7 +30,13 @@ const server = http.createServer((req, res) => {
 // player: { ws, name, st: last state }
 const rooms = new Map();
 const now = () => Date.now();
-const send = (ws, msg) => { if (ws && ws.readyState === 1) ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg)); };
+const TESTLAG = +process.env.TESTLAG || 0; // testing only: simulate a slow, jittery network (ms)
+const sendNow = (ws, msg) => { if (ws && ws.readyState === 1) ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg)); };
+const send = !TESTLAG ? sendNow : (ws, msg) => {
+  if (!ws) return;
+  const at = Math.max(ws._nextAt || 0, Date.now() + TESTLAG * (0.5 + Math.random() * 1.5) + (Math.random() < 0.05 ? TESTLAG * 2 : 0));
+  ws._nextAt = at; setTimeout(() => sendNow(ws, msg), at - Date.now());
+};
 const cleanName = n => (String(n || '').replace(/[\u0000-\u001f<>]/g, '').trim() || 'لاعب').slice(0, 14);
 function newCode() { let c; do { c = String(1000 + Math.floor(Math.random() * 9000)); } while (rooms.has(c)); return c; }
 

@@ -1,7 +1,8 @@
 services:
   - type: web
-    name: palon
+    name: palon-eu
     runtime: node
+    region: frankfurt
     plan: free
     buildCommand: npm install
     startCommand: npm start
