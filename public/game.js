@@ -1088,7 +1088,6 @@ function startRun(idx) {
   $('controls').classList.remove('hidden');
   showBanner(idx);
   updateHud(true);
-  applyCtrlMode(); ctrlHint();
 }
 
 function update(dt) {
@@ -1124,10 +1123,10 @@ function update(dt) {
       if (d < o.rad && d > 1) { const k = 1 - d / o.rad; w.wind += dx / d * o.f * k * 1.6; B.vy += dy / d * 260 * k * dt; }
     }
     let ax = w.wind;
-    const steer = input.axis ? input.axis : (input.right ? 1 : 0) - (input.left ? 1 : 0);
-    ax += steer * 1150;
+    if (input.left) ax -= 1150;
+    if (input.right) ax += 1150;
     B.vx += ax * dt;
-    B.vx *= Math.pow(!steer ? 0.03 : 0.5, dt);
+    B.vx *= Math.pow(!input.left && !input.right ? 0.03 : 0.5, dt);
     B.vx = clamp(B.vx, -240, 240);
     B.x += B.vx * dt; B.y += B.vy * dt;
     B.s += ((1 + B.p * MAX_GROW) - B.s) * Math.min(1, dt * 10);
@@ -1400,7 +1399,7 @@ function onMsg(m) {
       world = buildTower(); resetTo(world, 0); world.live = false;
       hideOverlay(); state = 'vscount';
       $('hud').classList.remove('hidden'); $('controls').classList.remove('hidden');
-      updateHud(true); updateOppHud(); applyCtrlMode(); ctrlHint();
+      updateHud(true); updateOppHud();
       clearInterval(NET.sendTimer); NET.sendTimer = setInterval(sendState, 33);
       break;
     }
@@ -1631,10 +1630,9 @@ function showMenu() {
     <button class="btn" style="background:#7a5bd1" data-act="spec">👀 اتفرج على ماتش</button>
     <div class="row">
       <button class="btn ghost" data-act="how">إزاي ألعب؟</button>
-      <button class="btn ghost" data-act="ctrl">${CTRL_NAMES[ctrlMode()]}</button>
       <button class="btn ghost" data-act="mute">${save.muted ? '🔇 الصوت' : '🔊 الصوت'}</button>
     </div>
-    <p class="small">نسخة 26</p>`);
+    <p class="small">نسخة 27</p>`);
 }
 function showSolo() {
   state = 'solo';
@@ -1664,8 +1662,7 @@ function showHow() {
       <li>⏫ الزرار الكبير اليمين = نفخ: البلونة <b>بتكبر وتطلع أسرع</b>.</li>
       <li>⚠️ الشريط اللي فوق على الشمال هو <b>عدّاد النفخ</b>. لو اتملى للآخر البلونة <b>بتفرقع</b>! سيب الزرار شوية عشان يفضى.</li>
       <li>⏬ الزرار البرتقالي تحت زرار النفخ = يفسّي البلونة وينزّلها بسرعة.</li>
-      <li>🎮 فيه 3 طرق تحكم تختار منهم من القائمة: <b>جويستيك</b> (صباع واحد تحت في أي حتة: لفوق طيران، يمين وشمال اتجاه)، <b>زراير</b>، أو <b>ميل الموبايل</b>.</li>
-      <li>◀ ▶ في وضع الزراير: الأزرار الشمال = يمين وشمال.</li>
+      <li>◀ ▶ الأزرار الشمال = يمين وشمال.</li>
       <li>👍 أو بصباع واحد: امسك زرار النفخ وزحلق صباعك شمال أو يمين عشان توجّه البلونة.</li>
       <li>⚙️ المسار الحديد بتعدّي منه عادي، المنشار اللي ماشي عليه هو اللي بيفرقعك.</li>
       <li>${coinSpan} في آخر كل ليفل بوابة.. لازم تجمع عدد الكوينز المكتوب عشان تفتح وتطلع على الليفل اللي بعده على طول.</li>
@@ -1708,7 +1705,6 @@ function showPause() {
     state = 'paused'; clearInput();
     showOverlay(`<h2>⏸ وقفت</h2><p>خد بالك: الخصم لسه بيلعب!</p>
       <button class="btn green" data-act="resume">▶ كمّل</button>
-      <button class="btn ghost" data-act="ctrlp">التحكم: ${CTRL_NAMES[ctrlMode()]}</button>
       <button class="btn ghost" data-act="vsquit">🏳️ انسحب</button>`);
     return;
   }
@@ -1716,7 +1712,6 @@ function showPause() {
   showOverlay(`<h2>إيقاف مؤقت ⏸</h2>
     <button class="btn green" data-act="resume">▶ كمّل</button>
     <button class="btn" data-act="retry">↻ ابدأ ليفل ${world.cur + 1} من الأول</button>
-    <button class="btn ghost" data-act="ctrlp">التحكم: ${CTRL_NAMES[ctrlMode()]}</button>
     <div class="row"><button class="btn ghost" data-act="mute">${save.muted ? '🔇' : '🔊'}</button><button class="btn ghost" data-act="menu">القائمة</button></div>`);
 }
 
@@ -1730,8 +1725,6 @@ overlay.addEventListener('click', e => {
   else if (a === 'how') showHow();
   else if (a === 'menu') { netStop(true); idleWorld(); showMenu(); }
   else if (a === 'solo') showSolo();
-  else if (a === 'ctrl') { nextCtrlMode().then(showMenu); }
-  else if (a === 'ctrlp') { nextCtrlMode().then(() => { state = 'play'; showPause(); }); }
   else if (a === 'vs') showVsLobby();
   else if (a === 'vsquick') vsStart('quick');
   else if (a === 'vscreate') vsStart('create');
@@ -1748,134 +1741,70 @@ overlay.addEventListener('click', e => {
 
 /* ---------------- input ---------------- */
 function clearInput() {
-  input.left = input.right = input.up = input.down = false; input.axis = 0;
-  if (typeof hideJoy === 'function') hideJoy();
+  input.left = input.right = input.up = input.down = false;
   document.querySelectorAll('.ctl.pressed').forEach(b => b.classList.remove('pressed'));
+  if (ptrs) ptrs.clear();
 }
-// Mouse: classic hold per button.
-function bindHold(id, key) {
-  const el = $(id); const ptrs = new Set();
-  const set = () => { input[key] = ptrs.size > 0; el.classList.toggle('pressed', ptrs.size > 0); };
-  el.addEventListener('pointerdown', e => { if (e.pointerType === 'touch') return; e.preventDefault(); audio(); ptrs.add(e.pointerId); try { el.setPointerCapture(e.pointerId); } catch (_) {} set(); });
-  const up = e => { if (e.pointerType === 'touch') return; ptrs.delete(e.pointerId); set(); };
-  el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); el.addEventListener('lostpointercapture', up);
-  el.addEventListener('contextmenu', e => e.preventDefault());
-}
-bindHold('btnL', 'left'); bindHold('btnR', 'right'); bindHold('btnU', 'up'); bindHold('btnD', 'down');
-
-// Touch: every finger is checked against every button on each touch event, so holding
-// inflate with one thumb and left/right with the other always works the same on both sides
-// (and you can slide a finger from one button to the next).
+// Touch & mouse input, rebuilt on Pointer Events.
+// The whole bottom part of the screen (#controls) is one touch surface. Every finger is its own
+// pointer: we remember where each one is from the moment it touches until it lifts (pointer capture
+// keeps delivering its moves/lifts even if it slides off), and after every change we recompute the
+// buttons from ALL fingers at once. A finger never depends on another finger's events, so holding
+// inflate with one thumb can't swallow or delay the other thumb.
 const CTL = [['btnU', 'up'], ['btnD', 'down'], ['btnL', 'left'], ['btnR', 'right']];
-// Big touch zones instead of exact button circles, so a thumb that lands a bit off
-// still counts every time:
-//   bottom half, left side  -> left / right (split between the two buttons)
-//   bottom half, right side -> inflate (upper part) / deflate (lower part)
-// A finger that starts on inflate and slides sideways also steers.
-const upTouches = new Map();
-function zoneOf(t, rc) {
+var ptrs = new Map(); // pointerId -> { x, y, upX }
+function zoneOf(x, y, rc) {
   const a = rc.app;
-  if (t.clientY < a.top + a.height * 0.45) return null;
-  if (t.clientX < a.left + a.width / 2) return t.clientX < (rc.L.right + rc.R.left) / 2 ? 'left' : 'right';
-  return t.clientY < (rc.U.bottom + rc.D.top) / 2 ? 'up' : 'down';
+  if (y < a.top + a.height * 0.45) return null;
+  if (x < a.left + a.width / 2) return x < (rc.L.right + rc.R.left) / 2 ? 'left' : 'right';
+  return y < (rc.U.bottom + rc.D.top) / 2 ? 'up' : 'down';
 }
-/* ---- control modes: 'joy' (one-finger joystick), 'btn' (buttons), 'tilt' (tilt the phone) ---- */
-const IS_TOUCH = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
-function ctrlMode() { return save.ctrl || (IS_TOUCH ? 'joy' : 'btn'); }
-const CTRL_NAMES = { joy: '🕹️ جويستيك', btn: '🔘 زراير', tilt: '📱 ميل الموبايل' };
-function applyCtrlMode() {
-  const c = $('controls'); c.classList.remove('mode-joy', 'mode-btn', 'mode-tilt'); c.classList.add('mode-' + ctrlMode());
+function ctlRects() {
+  return { app: app.getBoundingClientRect(), U: $('btnU').getBoundingClientRect(), D: $('btnD').getBoundingClientRect(),
+           L: $('btnL').getBoundingClientRect(), R: $('btnR').getBoundingClientRect() };
 }
-async function nextCtrlMode() {
-  const order = ['joy', 'btn', 'tilt'], m = order[(order.indexOf(ctrlMode()) + 1) % 3];
-  if (m === 'tilt' && window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
-    try { await DeviceOrientationEvent.requestPermission(); } catch (e) {}
-  }
-  save.ctrl = m; persist(); applyCtrlMode();
-}
-let tiltG = 0, tiltSeen = false;
-window.addEventListener('deviceorientation', e => { if (e.gamma !== null) { tiltG = e.gamma; tiltSeen = true; } });
-function tiltAxis() { const g = tiltG, a = Math.abs(g); return a < 3 ? 0 : clamp((a - 3) / 20, 0, 1) * Math.sign(g); }
-function ctrlHint() {
-  const m = ctrlMode(), el = $('joyHint');
-  if (!IS_TOUCH || m === 'btn') { el.classList.remove('on'); return; }
-  el.innerHTML = m === 'joy' ? 'حط صباعك تحت في أي حتة وحرّكه<br>⬆ طيران &nbsp; ⬅ ➡ اتجاه &nbsp; ⬇ تفسية<br><small>تقدر تطلع وتروح شمال في نفس الوقت (لفوق وشمال)</small>'
-    : (tiltSeen ? 'ميّل الموبايل يمين وشمال عشان توجّه<br>اضغط تحت في أي حتة = طيران' : 'الموبايل ده مش بيدي ميل.. غيّر التحكم من القائمة');
-  el.classList.add('on'); clearTimeout(ctrlHint.t); ctrlHint.t = setTimeout(() => el.classList.remove('on'), 3500);
-}
-const joy = { id: null, x0: 0, y0: 0 };
-function showJoy(x, y) { const j = $('joy'); j.style.left = x + 'px'; j.style.top = y + 'px'; j.classList.add('on'); $('joyHint').classList.remove('on'); }
-function hideJoy() { joy.id = null; const j = $('joy'); if (j) j.classList.remove('on'); }
-function touchControls(e) {
-  if (state !== 'play') { upTouches.clear(); if (joy.id !== null) hideJoy(); return; }
-  const mode = ctrlMode();
-  if (mode !== 'btn') {
-    const a = app.getBoundingClientRect(), touches = [...e.touches], sc = a.width / 400;
-    const st = { left: false, right: false, up: false, down: false };
-    let axis = 0, onCtl = false;
-    if (mode === 'joy') {
-      if (joy.id !== null && !touches.some(t => t.identifier === joy.id)) hideJoy();
-      if (joy.id === null) {
-        const t = touches.find(t => t.clientY > a.top + a.height * 0.3);
-        if (t) { joy.id = t.identifier; joy.x0 = t.clientX; joy.y0 = t.clientY; showJoy(t.clientX - a.left, t.clientY - a.top); }
-      }
-      const t = touches.find(t => t.identifier === joy.id);
-      if (t) {
-        onCtl = true;
-        const RJ = 55 * sc;
-        let dx = t.clientX - joy.x0, dy = t.clientY - joy.y0;
-        const d = Math.hypot(dx, dy);
-        if (d > RJ) { // drag the base along so the stick never runs out of room
-          const k = (d - RJ) / d; joy.x0 += dx * k; joy.y0 += dy * k; dx = t.clientX - joy.x0; dy = t.clientY - joy.y0;
-          const j = $('joy'); j.style.left = (joy.x0 - a.left) + 'px'; j.style.top = (joy.y0 - a.top) + 'px';
-        }
-        $('joyKnob').style.transform = `translate(${dx}px, ${dy}px)`;
-        if (dy < -14 * sc) st.up = true; else if (dy > 24 * sc) st.down = true;
-        const adx = Math.abs(dx) / sc;
-        if (adx > 8) axis = clamp((adx - 8) / 38, 0, 1) * Math.sign(dx);
-      }
-      // a second finger anywhere below the top bar also inflates
-      if (touches.some(t => t.identifier !== joy.id && t.clientY > a.top + a.height * 0.18)) { st.up = true; onCtl = true; }
-    } else { // tilt
-      const D = $('btnD').getBoundingClientRect();
-      for (const t of touches) {
-        if (t.clientY < a.top + a.height * 0.18) continue;
-        onCtl = true;
-        if (t.clientX > D.left - 14 && t.clientX < D.right + 14 && t.clientY > D.top - 14 && t.clientY < D.bottom + 14) st.down = true; else st.up = true;
-      }
-      axis = tiltAxis();
-    }
-    st.left = axis < -0.15; st.right = axis > 0.15;
-    if (onCtl && e.cancelable) { e.preventDefault(); audio(); }
-    Object.assign(input, st); input.axis = axis;
-    for (const [id, key] of CTL) $(id).classList.toggle('pressed', st[key]);
-    return;
-  }
-  const rc = { app: app.getBoundingClientRect(), U: $('btnU').getBoundingClientRect(), D: $('btnD').getBoundingClientRect(),
-               L: $('btnL').getBoundingClientRect(), R: $('btnR').getBoundingClientRect() };
+function recomputeInput() {
   const st = { left: false, right: false, up: false, down: false };
-  let onCtl = false, slide = 0;
-  const alive = new Set();
-  for (const t of e.touches) {
-    alive.add(t.identifier);
-    if (upTouches.has(t.identifier)) {
-      st.up = true; onCtl = true;
-      const dx = t.clientX - upTouches.get(t.identifier);
-      if (dx < -22) slide = -1; else if (dx > 22) slide = 1;
-      continue;
+  if (state === 'play') {
+    const rc = ctlRects();
+    let slide = 0;
+    for (const p of ptrs.values()) {
+      if (p.upX !== undefined) { // finger that started on inflate: stays inflate, sliding it sideways steers
+        st.up = true;
+        const dx = p.x - p.upX;
+        if (dx < -22) slide = -1; else if (dx > 22) slide = 1;
+        continue;
+      }
+      const z = zoneOf(p.x, p.y, rc);
+      if (z) st[z] = true;
     }
-    const z = zoneOf(t, rc);
-    if (!z) continue;
-    onCtl = true; st[z] = true;
-    if (z === 'up') upTouches.set(t.identifier, t.clientX);
+    if (!st.left && !st.right) { if (slide < 0) st.left = true; else if (slide > 0) st.right = true; }
   }
-  for (const id of [...upTouches.keys()]) if (!alive.has(id)) upTouches.delete(id);
-  // the left/right buttons always win over thumb-slide steering
-  if (!st.left && !st.right) { if (slide < 0) st.left = true; else if (slide > 0) st.right = true; }
-  if (onCtl && e.cancelable) { e.preventDefault(); audio(); }
   for (const [id, key] of CTL) { input[key] = st[key]; $(id).classList.toggle('pressed', st[key]); }
 }
-['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(t => document.addEventListener(t, touchControls, { passive: false }));
+(function bindControls() {
+  const pad = $('controls');
+  pad.addEventListener('pointerdown', e => {
+    e.preventDefault(); audio();
+    try { pad.setPointerCapture(e.pointerId); } catch (_) {}
+    const p = { x: e.clientX, y: e.clientY };
+    if (zoneOf(p.x, p.y, ctlRects()) === 'up') p.upX = p.x;
+    ptrs.set(e.pointerId, p);
+    recomputeInput();
+  });
+  pad.addEventListener('pointermove', e => {
+    const p = ptrs.get(e.pointerId); if (!p) return;
+    p.x = e.clientX; p.y = e.clientY;
+    recomputeInput();
+  });
+  const end = e => { if (ptrs.delete(e.pointerId)) recomputeInput(); };
+  pad.addEventListener('pointerup', end);
+  pad.addEventListener('pointercancel', end);
+  pad.addEventListener('lostpointercapture', end);
+  pad.addEventListener('contextmenu', e => e.preventDefault());
+  // no long-press menus / text selection / double-tap zoom on the touch area
+  ['touchstart', 'touchmove', 'touchend'].forEach(t => pad.addEventListener(t, e => { if (e.cancelable) e.preventDefault(); }, { passive: false }));
+})();
 $('pauseBtn').addEventListener('click', () => { audio(); showPause(); });
 $('spec0').addEventListener('click', () => { SPEC.follow = SPEC.follow === 0 ? -1 : 0; updateSpecBar(); });
 $('spec1').addEventListener('click', () => { SPEC.follow = SPEC.follow === 1 ? -1 : 1; updateSpecBar(); });
@@ -1908,7 +1837,6 @@ function frame(now) {
     if (left !== NET.lastCount) { NET.lastCount = left; if (left > 0) { countBanner(String(left)); tone(520, 0.12, 'triangle', 0.1); } }
     if (left <= 0) { state = 'play'; world.live = true; countBanner('يلا! 🎈'); tone(880, 0.25, 'triangle', 0.12); }
   }
-  if (state === 'play' && ctrlMode() === 'tilt') { input.axis = tiltAxis(); input.left = input.axis < -0.15; input.right = input.axis > 0.15; }
   if (state === 'spec') specFrame(dt);
   else if (state === 'play') {
     update(dt);
@@ -1925,7 +1853,6 @@ function frame(now) {
   drawWorld(world, T);
   requestAnimationFrame(frame);
 }
-applyCtrlMode();
 showMenu();
 requestAnimationFrame(frame);
 
