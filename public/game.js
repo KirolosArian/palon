@@ -1632,7 +1632,7 @@ function showMenu() {
       <button class="btn ghost" data-act="how">إزاي ألعب؟</button>
       <button class="btn ghost" data-act="mute">${save.muted ? '🔇 الصوت' : '🔊 الصوت'}</button>
     </div>
-    <p class="small">نسخة 27</p>`);
+    <p class="small">نسخة 28</p>`);
 }
 function showSolo() {
   state = 'solo';

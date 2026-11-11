@@ -93,11 +93,13 @@ canvas#game { position: absolute; inset: 0; width: 100%; height: 100%; display: 
 /* left side: move left / right */
 /* kept away from the screen edge: many phones ignore touches right at the edge
    while another finger is already on the screen (palm / edge rejection) */
-#btnL { left: 26px; width: 66px; height: 66px; }
-#btnR { left: 102px; width: 66px; height: 66px; }
+/* left/right sit higher and away from the bottom-left corner: many phones throw away a touch that lands
+   in the bottom corner at the same moment as another finger (they think it's your palm) */
+#btnL { left: 30px; width: 70px; height: 70px; bottom: calc(78px + env(safe-area-inset-bottom)); }
+#btnR { left: 112px; width: 70px; height: 70px; bottom: calc(78px + env(safe-area-inset-bottom)); }
 /* right side: inflate on top, deflate right under it */
-#btnU { right: 14px; width: 88px; height: 88px; bottom: calc(96px + env(safe-area-inset-bottom)); padding: 17px; }
-#btnD { right: 23px; width: 70px; height: 70px; bottom: calc(18px + env(safe-area-inset-bottom)); padding: 15px; background: #e0a14a; }
+#btnU { right: 14px; width: 88px; height: 88px; bottom: calc(112px + env(safe-area-inset-bottom)); padding: 17px; }
+#btnD { right: 23px; width: 70px; height: 70px; bottom: calc(30px + env(safe-area-inset-bottom)); padding: 15px; background: #e0a14a; }
 #btnD.pressed { background: #c4852f; }
 
 /* ---------- Overlays ---------- */
