@@ -1,0 +1,11 @@
+{
+  "name": "palon-online",
+  "version": "1.0.0",
+  "description": "PALON balloon game - online 1v1 races and spectators",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "ws": "^8.18.0" },
+  "license": "UNLICENSED",
+  "private": true
+}
