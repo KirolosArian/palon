@@ -194,3 +194,13 @@ p { margin: 6px 0; font-weight: 600; line-height: 1.6; }
 .spec-prog div { height: 100%; width: 0; transition: width .3s; }
 .spec-prog .red { background: #e8202a; } .spec-prog .blue { background: #1f5fd1; }
 .spec-tip { font-size: 11px; opacity: .55; text-align: center; font-weight: 700; }
+
+/* ---------- 4-player rooms ---------- */
+.dot.green { background: #1f9c4c; } .dot.orange { background: #e07a10; }
+.spec-prog .green { background: #1f9c4c; } .spec-prog .orange { background: #e07a10; }
+#specBar .hidden { display: none !important; }
+.rank { margin: 8px 0; text-align: right; }
+.rk { display: flex; align-items: center; gap: 6px; background: #fff; border: 3px solid #2b3440; border-radius: 12px; padding: 4px 10px; margin: 5px 0; }
+.rk b { flex: 1; font-size: 16px; }
+.rk small { font-size: 12px; opacity: .7; font-weight: 700; }
+.rk.me { background: #fff3c4; }

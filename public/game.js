@@ -832,6 +832,11 @@ function drawPower(g, p, T) {
 
 const RED = { hi: '#ff4a4f', lo: '#d10f1a', neck: '#b5121b', line: '#6b0a10' };
 const BLUE = { hi: '#5aa9ff', lo: '#1f5fd1', neck: '#1a4aa0', line: '#0d2a66' };
+const GREEN = { hi: '#5fe08a', lo: '#1f9c4c', neck: '#17803c', line: '#0b4a22' };
+const ORANGE = { hi: '#ffbe55', lo: '#e07a10', neck: '#b8600a', line: '#6b3604' };
+const SEAT_COL = [RED, BLUE, GREEN, ORANGE];
+const SEAT_TXT = ['#d10f1a', '#1f5fd1', '#1f9c4c', '#e07a10'];
+const SEAT_DOT = ['red', 'blue', 'green', 'orange'];
 function drawBalloon(g, B, T, col) {
   col = col || RED;
   const R = 20 * B.s;
@@ -1027,9 +1032,12 @@ function drawWorld(w, T) {
   for (const d of w.darts) drawDart(ctx, d);
 
   if (w.storm && w.storm.y < bot) drawStorm(ctx, w, T, bot);
-  if (NET.on && NET.g && NET.g.od) drawGhost(ctx, w, T, top, bot, NET.g.od, NET.oppName, BLUE, '#1f5fd1', 0);
-  if (SPEC.on) for (let i = 0; i < 2; i++) if (SPEC.g[i]) drawGhost(ctx, w, T, top, bot, SPEC.g[i].od, SPEC.names[i] || '', i ? BLUE : RED, i ? '#1f5fd1' : '#d10f1a', i);
-  if (B.alive) drawBalloon(ctx, B, T);
+  if (NET.on && NET.started) {
+    let slot = 0;
+    for (const seat in NET.ghosts) if (!NET.gone[seat] && NET.ghosts[seat].od) drawGhost(ctx, w, T, top, bot, NET.ghosts[seat].od, NET.names[seat] || '', SEAT_COL[seat], SEAT_TXT[seat], slot++);
+  }
+  if (SPEC.on) { let slot = 0; for (let i = 0; i < 4; i++) if (SPEC.g[i] && !SPEC.gone[i]) drawGhost(ctx, w, T, top, bot, SPEC.g[i].od, SPEC.names[i] || '', SEAT_COL[i], SEAT_TXT[i], slot++); }
+  if (B.alive) drawBalloon(ctx, B, T, NET.on && NET.started ? SEAT_COL[NET.seat] : RED);
 
   for (const p of w.parts) {
     ctx.globalAlpha = clamp(p.life / p.max, 0, 1);
@@ -1389,13 +1397,20 @@ function ghostFrame(G, dt) {
 /* ---- messages from the server ---- */
 function onMsg(m) {
   switch (m.t) {
-    case 'room': NET.code = m.code; if (!NET.started) showWaiting(); break;
+    case 'lobby':
+      if (!NET.on || NET.started) break;
+      Object.assign(NET, { code: m.code, seat: m.you, host: m.host, quick: m.quick, lobby: m.players, autoAt: m.startIn ? performance.now() + m.startIn : 0 });
+      showWaiting();
+      break;
     case 'err':
       if (state === 'speclist' || SPEC.on) { stopSpectate(); showSpecList('الماتش ده خلص أو مش موجود'); }
       else { NET.on = false; vsErr(m.err === 'nocode' ? 'الكود ده مش موجود' : m.err === 'full' ? 'الأوضة دي مليانة أو اللعب بدأ' : 'حصل خطأ، جرّب تاني'); }
       break;
     case 'start': {
-      NET.started = true; NET.oppName = m.opp || 'الخصم'; NET.startAt = performance.now() + m.in; NET.lastCount = null;
+      NET.started = true; NET.seat = m.you; NET.startAt = performance.now() + m.in; NET.lastCount = null;
+      NET.names = {}; NET.ghosts = {}; NET.opps = {}; NET.gone = {};
+      for (const p of m.players) { NET.names[p.seat] = p.name; if (p.seat !== m.you) NET.ghosts[p.seat] = makeGhost(); }
+      clearInterval(NET.lobbyTimer);
       world = buildTower(); resetTo(world, 0); world.live = false;
       hideOverlay(); state = 'vscount';
       $('hud').classList.remove('hidden'); $('controls').classList.remove('hidden');
@@ -1404,34 +1419,50 @@ function onMsg(m) {
       break;
     }
     case 'pong': if (m.ct) { const r = performance.now() - m.ct; NET.ping = NET.ping ? Math.round(NET.ping * 0.7 + r * 0.3) : Math.round(r); updateOppHud(); } break;
-    case 'opp': if (NET.on) { NET.opp = m; ghostSample(NET.g, m, performance.now()); updateOppHud(); } break;
+    case 'opp':
+      if (NET.on && NET.ghosts && NET.ghosts[m.seat]) { NET.opps[m.seat] = m; ghostSample(NET.ghosts[m.seat], m, performance.now()); if (++NET.hudTick % 8 === 0) updateOppHud(); }
+      break;
+    case 'gone':
+      if (NET.on && NET.started) { NET.gone[m.seat] = true; hudMsg('🚪 ' + (NET.names[m.seat] || '') + ' خرج من الماتش', 2); updateOppHud(); }
+      break;
     case 'watchers': NET.watchers = m.n; updateOppHud(); break;
     case 'over':
-      if (NET.on && !NET.done) { NET.done = true; stopRace(); showVsResult(m.won, m.reason); }
+      if (NET.on && !NET.done) { NET.done = true; stopRace(); showVsResult(m.won, m.reason, m); }
       break;
     case 'list': if (state === 'speclist') renderSpecList(m.matches); break;
     case 'winfo':
       if (!SPEC.on || m.code !== SPEC.code) break;
-      SPEC.names = m.names; SPEC.startAt = performance.now() - m.since; SPEC.watchers = m.watchers;
+      for (const p of m.players) { SPEC.names[p.seat] = p.name; if (p.gone) SPEC.gone[p.seat] = true; }
+      SPEC.seats = m.players.map(p => p.seat);
+      SPEC.startAt = performance.now() - m.since; SPEC.watchers = m.watchers;
       updateSpecBar();
       break;
     case 'w':
-      if (!SPEC.on) break;
+      if (!SPEC.on || !SPEC.g[m.i]) break;
       SPEC.st[m.i] = m; ghostSample(SPEC.g[m.i], m, performance.now());
-      updateSpecBar();
+      if (++SPEC.tick % 10 === 0) updateSpecBar();
       break;
+    case 'wgone': if (SPEC.on) { SPEC.gone[m.seat] = true; updateSpecBar(); } break;
     case 'wover':
       if (!SPEC.on || SPEC.over) break;
       SPEC.over = true; SPEC.winner = m.winner;
       updateSpecBar();
       showOverlay(`<h2>🏆 ${esc(m.winnerName)} كسب!</h2>
-        <p>${m.reason === 'left' ? 'الخصم التاني خرج من الماتش.' : 'وصل ليفل ' + NUM + ' الأول.'}</p>
+        <p>${m.reason === 'left' ? 'كل اللاعبين التانيين خرجوا.' : 'وصل ليفل ' + NUM + ' الأول.'}</p>
+        ${rankingHtml(m.ranking, -1)}
         <button class="btn" style="background:#1f5fd1" data-act="spec">👀 ماتشات تانية</button>
         <button class="btn ghost" data-act="menu">القائمة</button>`);
       overlay.classList.add('clear');
       SFX.win();
       break;
   }
+}
+function rankingHtml(rk, mySeat) {
+  if (!rk || !rk.length) return '';
+  const medal = ['🥇', '🥈', '🥉', '4️⃣'];
+  return '<div class="rank">' + rk.map((r, i) => `<div class="rk${r.seat === mySeat ? ' me' : ''}"><span>${medal[i] || ''}</span>
+    <span class="dot ${SEAT_DOT[r.seat]}"></span><b>${esc(r.name)}${r.seat === mySeat ? ' (انت)' : ''}</b>
+    <small>${r.gone ? 'خرج' : i === 0 ? 'وصل الآخر' : 'ليفل ' + (r.lvl + 1)}</small></div>`).join('') + '</div>';
 }
 
 /* ---- racing ---- */
@@ -1447,10 +1478,10 @@ function sendState() {
 async function showVsLobby() {
   state = 'vslobby'; hideGameUI();
   showOverlay(`<h2>⚔️ ضد خصم أونلاين</h2>
-    <p class="small">انتو الاتنين بتطلعوا في نفس البرج. أول واحد يوصل ليفل ${NUM} يكسب.<br>لو فرقعت بترجع لأول الليفل اللي انت فيه.</p>
+    <p class="small">من 2 لـ 4 لاعبين بيطلعوا في نفس البرج. أول واحد يوصل ليفل ${NUM} يكسب.<br>لو فرقعت بترجع لأول الليفل اللي انت فيه.</p>
     <input id="vsName" class="inp" maxlength="14" placeholder="اكتب اسمك" value="${esc(savedName())}">
-    <button class="btn" style="background:#1f5fd1" data-act="vsquick">🔎 دوّر على خصم</button>
-    <button class="btn" data-act="vscreate">🏠 اعمل أوضة بكود لصاحبك</button>
+    <button class="btn" style="background:#1f5fd1" data-act="vsquick">🔎 ماتش سريع (دوّر على لاعبين)</button>
+    <button class="btn" data-act="vscreate">🏠 اعمل أوضة بكود لصحابك</button>
     <div class="row" style="align-items:center"><input id="vsCode" class="inp" inputmode="numeric" maxlength="4" placeholder="عندك كود؟"><button class="btn green" style="flex:0 0 38%" data-act="vsjoin">ادخل</button></div>
     <p id="vsErr" class="small" style="color:#e8202a;opacity:1;min-height:18px"></p>
     <button class="btn ghost" data-act="menu">رجوع</button>`);
@@ -1464,30 +1495,54 @@ async function vsStart(kind) {
   vsErr('...');
   try { await wsConnect(); } catch (e) { vsErr('مش قادر أوصل للسيرفر الأونلاين.'); return; }
   stopSpectate();
-  Object.assign(NET, { on: true, started: false, fin: false, done: false, code: null, kind, oppName: 'الخصم', opp: null, watchers: 0, g: makeGhost(), lastCount: null });
+  Object.assign(NET, { on: true, started: false, fin: false, done: false, code: null, kind, seat: 0, host: -1, lobby: [], autoAt: 0,
+    names: {}, ghosts: {}, opps: {}, gone: {}, watchers: 0, lastCount: null, hudTick: 0 });
   wsSend({ t: kind, name, code });
 }
 function showWaiting() {
   state = 'vswait';
-  showOverlay(`<h2>مستني خصم... ⏳</h2>
-    ${NET.kind === 'quick' ? '<p>بدوّرلك على حد يلعب ضدك.<br>خلّي صاحبك يدوس "دوّر على خصم" في نفس الوقت.</p>' : `<p>ابعت الكود ده لصاحبك:</p><div class="code">${NET.code}</div>`}
-    <div class="spinner"></div>
-    <button class="btn ghost" data-act="vscancel">إلغاء</button>`);
+  const list = (NET.lobby || []).map(p => `<div class="rk"><span class="dot ${SEAT_DOT[p.seat]}"></span><b>${esc(p.name)}${p.seat === NET.seat ? ' (انت)' : ''}</b>
+    <small>${p.seat === NET.host && !NET.quick ? '👑 صاحب الأوضة' : ''}</small></div>`).join('');
+  const n = (NET.lobby || []).length;
+  let foot;
+  if (NET.quick) foot = n < 2 ? '<p>بندوّر على لاعبين... ⏳</p>' : `<p>الماتش هيبدأ خلال <b id="lobbyCount">..</b> ثانية<br><span class="small">ممكن لحد 4 لاعبين يدخلوا</span></p>`;
+  else if (NET.seat === NET.host) foot = `<p>ابعت الكود ده لصحابك (لحد 4 لاعبين):</p><div class="code">${NET.code}</div>
+      <button class="btn green" data-act="vsbegin" ${n < 2 ? 'disabled style="opacity:.5"' : ''}>▶ ابدأ الماتش (${n}/4)</button>`;
+  else foot = `<div class="code">${NET.code}</div><p>مستني صاحب الأوضة يبدأ الماتش... ⏳</p>`;
+  showOverlay(`<h2>${NET.quick ? '🔎 ماتش سريع' : '🏠 الأوضة'}</h2>
+    <div class="rank">${list}</div>
+    ${foot}
+    <button class="btn ghost" data-act="vscancel">خروج</button>`);
+  clearInterval(NET.lobbyTimer);
+  if (NET.autoAt) NET.lobbyTimer = setInterval(() => { const el = $('lobbyCount'); if (el) el.textContent = Math.max(0, Math.ceil((NET.autoAt - performance.now()) / 1000)); }, 250);
+}
+function myRank() {
+  // everyone climbs the same tower, so "higher" simply means a smaller y
+  let r = 1, total = 1, leader = null, ly = world.B.y;
+  for (const seat in NET.opps) {
+    if (NET.gone[seat]) continue;
+    total++;
+    const o = NET.opps[seat];
+    if (o.y < world.B.y) r++;
+    if (o.y < ly) { ly = o.y; leader = seat; }
+  }
+  for (const seat in NET.names) if (+seat !== NET.seat && !NET.opps[seat] && !NET.gone[seat]) total++;
+  return { r, total, leader };
 }
 function updateOppHud() {
   const el = $('hudOpp');
   if (!NET.on || !NET.started) { el.classList.add('hidden'); return; }
-  const o = NET.opp, mine = world.cur;
-  let t = '🆚 ' + NET.oppName, ahead = false;
-  if (o) { ahead = o.lvl > mine || (o.lvl === mine && o.y < world.B.y); t += ': ليفل ' + (o.lvl + 1) + (ahead ? ' ⬆' : ' ⬇'); }
+  const { r, total, leader } = myRank();
+  let t = '🏁 مركزك ' + r + '/' + total;
+  if (leader !== null) { const o = NET.opps[leader]; t += ' • الأول: ' + (NET.names[leader] || '') + ' (ليفل ' + (o.lvl + 1) + ')'; }
   if (NET.watchers) t += '  👀' + NET.watchers;
   if (NET.ping) t += '  📶' + NET.ping + 'ms';
   el.textContent = t;
-  el.classList.toggle('ahead', ahead);
+  el.classList.toggle('ahead', r > 1);
   el.classList.remove('hidden');
 }
 function stopRace() {
-  clearInterval(NET.sendTimer); NET.on = false; NET.started = false; NET.opp = null;
+  clearInterval(NET.sendTimer); clearInterval(NET.lobbyTimer); NET.on = false; NET.started = false;
   const el = $('hudOpp'); if (el) el.classList.add('hidden');
 }
 function netStop(sendLeave) {
@@ -1506,14 +1561,15 @@ function netFinish() {
   state = 'vsfin'; world.live = false; hideGameUI();
   showOverlay('<h2>وصلت للآخر! ⏳</h2><p>بنتأكد مين وصل الأول...</p><div class="spinner"></div>');
 }
-function showVsResult(won, reason) {
+function showVsResult(won, reason, m) {
   state = 'vsresult'; hideGameUI(); world.live = false;
-  const n = esc(NET.oppName);
+  const wn = esc((m && m.winnerName) || '');
   let h;
-  if (won) h = reason === 'left' ? `<h2>🏆 كسبت!</h2><p>${n} خرج من اللعبة.</p>` : `<h2>🏆 كسبت السباق!</h2><p>وصلت ليفل ${NUM} قبل ${n} 🎉</p>`;
-  else if (reason === 'quit') h = '<h2>🏳️ انسحبت</h2><p>الخصم كسب المرة دي.</p>';
+  if (won) h = reason === 'left' ? '<h2>🏆 كسبت!</h2><p>كل اللاعبين التانيين خرجوا.</p>' : `<h2>🏆 كسبت السباق!</h2><p>وصلت ليفل ${NUM} الأول 🎉</p>`;
+  else if (reason === 'quit') h = '<h2>🏳️ انسحبت</h2>';
   else if (reason === 'gone') h = '<h2>الاتصال اتقطع 📶</h2><p>اتأكد من النت وجرّب تاني.</p>';
-  else h = `<h2>😢 خسرت</h2><p>${n} وصل ليفل ${NUM} الأول.<br>انت كنت في ليفل ${world.cur + 1}.</p>`;
+  else h = `<h2>😢 خسرت</h2><p>${wn} وصل ليفل ${NUM} الأول.</p>`;
+  h += rankingHtml(m && m.ranking, NET.seat);
   if (won) { SFX.win(); for (let k = 0; k < 5; k++) burst(world, 40 + k * 80, world.camY + 200, CONFETTI, 14, 280, true); }
   else if (reason !== 'quit') SFX.lose();
   showOverlay(h + `<button class="btn" style="background:#1f5fd1" data-act="vs">⚔️ العب تاني</button><button class="btn ghost" data-act="menu">القائمة</button>`);
@@ -1543,16 +1599,19 @@ function renderSpecList(list) {
   if (!list.length) { el.innerHTML = '<p>مفيش ماتشات شغالة دلوقتي 😴<br><span class="small">أول ما حد يبدأ ماتش هيظهر هنا</span></p>'; return; }
   el.innerHTML = list.map(m => {
     const done = m.status === 'over';
-    const who = done ? '🏆 ' + esc(m.names[m.winner] || '') + ' كسب' : m.status === 'countdown' ? 'بيبدأ دلوقتي...' : `ليفل ${m.lvls[0] + 1} ضد ليفل ${m.lvls[1] + 1}`;
+    const wp = m.players.find(p => p.seat === m.winner);
+    const top = Math.max(...m.lvls) + 1;
+    const who = done ? '🏆 ' + esc(wp ? wp.name : '') + ' كسب' : m.status === 'countdown' ? 'بيبدأ دلوقتي...' : `الأول في ليفل ${top}`;
+    const names = m.players.map(p => `<span class="dot ${SEAT_DOT[p.seat]}"></span>${esc(p.name)}`).join(' <span class="vs">•</span> ');
     return `<button class="spec-item${done ? ' done' : ''}" data-act="specwatch" data-code="${m.code}">
-      <b><span class="dot red"></span>${esc(m.names[0])} <span class="vs">ضد</span> <span class="dot blue"></span>${esc(m.names[1])}</b>
-      <small>${who} • 👀 ${m.watchers}</small></button>`;
+      <b>${names}</b><small>${m.players.length} لاعبين • ${who} • 👀 ${m.watchers}</small></button>`;
   }).join('');
 }
 async function startSpectate(code) {
   try { await wsConnect(); } catch (e) { vsErr('مش قادر أوصل للسيرفر الأونلاين.'); return; }
   clearTimeout(SPEC.listTimer);
-  Object.assign(SPEC, { on: true, code, names: ['', ''], st: [null, null], g: [makeGhost(), makeGhost()], follow: -1, startAt: performance.now(), over: false, winner: null, watchers: 0 });
+  Object.assign(SPEC, { on: true, code, names: ['', '', '', ''], st: [null, null, null, null], g: [makeGhost(), makeGhost(), makeGhost(), makeGhost()],
+    gone: {}, seats: [], tick: 0, follow: -1, startAt: performance.now(), over: false, winner: null, watchers: 0 });
   world = buildTower(); resetTo(world, 0); world.live = false; world.B.alive = false; world.storm = null;
   state = 'spec'; hideOverlay(); hideGameUI();
   $('specBar').classList.remove('hidden');
@@ -1567,26 +1626,29 @@ function stopSpectate() {
 }
 function updateSpecBar() {
   if (!SPEC.on) return;
-  for (let i = 0; i < 2; i++) {
-    const st = SPEC.st[i], el = $('spec' + i);
-    const lv = st ? st.lvl + 1 : 1;
-    el.innerHTML = `<span class="dot ${i ? 'blue' : 'red'}"></span>${esc(SPEC.names[i] || '...')} <small>ليفل ${lv}</small>${SPEC.over && SPEC.winner === i ? ' 🏆' : ''}`;
+  for (let i = 0; i < 4; i++) {
+    const el = $('spec' + i), bar = $('specP' + i).parentElement;
+    const used = SPEC.seats.includes(i);
+    el.classList.toggle('hidden', !used); bar.classList.toggle('hidden', !used);
+    if (!used) continue;
+    const st = SPEC.st[i], lv = st ? st.lvl + 1 : 1;
+    el.innerHTML = `<span class="dot ${SEAT_DOT[i]}"></span>${esc(SPEC.names[i] || '...')} <small>${SPEC.gone[i] ? 'خرج' : 'ليفل ' + lv}</small>${SPEC.over && SPEC.winner === i ? ' 🏆' : ''}`;
     el.classList.toggle('on', specFollowIdx() === i);
     $('specP' + i).style.width = (st ? clamp(st.lvl / NUM + clamp((world.sections[st.lvl].startY - st.y) / (world.sections[st.lvl].startY - world.sections[st.lvl].finishY), 0, 1) / NUM, 0, 1) * 100 : 0) + '%';
   }
   $('specW').textContent = '👀 ' + (SPEC.watchers || 1);
 }
 function specFollowIdx() {
-  if (SPEC.follow >= 0) return SPEC.follow;
-  const a = SPEC.g[0] && SPEC.g[0].od, b = SPEC.g[1] && SPEC.g[1].od;
-  if (a && b) return a.y <= b.y ? 0 : 1; // auto: follow whoever is higher
-  return b && !a ? 1 : 0;
+  if (SPEC.follow >= 0 && !SPEC.gone[SPEC.follow]) return SPEC.follow;
+  let best = -1, by = Infinity; // auto: follow whoever is highest
+  for (const i of SPEC.seats) { const o = SPEC.g[i] && SPEC.g[i].od; if (o && !SPEC.gone[i] && o.y < by) { by = o.y; best = i; } }
+  return best >= 0 ? best : (SPEC.seats[0] || 0);
 }
 function specFrame(dt) {
   const w = world;
   w.time = (performance.now() - SPEC.startAt) / 1000;
   for (const o of w.obs) { const b = o.bb; if (b && (b[3] < w.camY - 120 || b[1] > w.camY + H + 120)) continue; if (o.type !== 'icicle' && o.type !== 'cannon' && o.type !== 'mine') updObs(o, dt, w); }
-  for (let i = 0; i < 2; i++) if (SPEC.g[i]) ghostFrame(SPEC.g[i], dt);
+  for (let i = 0; i < 4; i++) if (SPEC.g[i]) ghostFrame(SPEC.g[i], dt);
   const f = SPEC.g[specFollowIdx()];
   if (f && f.od) {
     const target = Math.min(f.od.y - H * 0.55, -H * 0.72 + 0);
@@ -1626,13 +1688,13 @@ function showMenu() {
       <span class="bank" style="color:#c98a00">★ ${totalStars}/${NUM * 3}</span>
     </div>
     <button class="btn red" data-act="solo">🎈 لعب سولو</button>
-    <button class="btn" style="background:#1f5fd1" data-act="vs">⚔️ العب ضد خصم أونلاين</button>
+    <button class="btn" style="background:#1f5fd1" data-act="vs">⚔️ العب أونلاين (2-4 لاعبين)</button>
     <button class="btn" style="background:#7a5bd1" data-act="spec">👀 اتفرج على ماتش</button>
     <div class="row">
       <button class="btn ghost" data-act="how">إزاي ألعب؟</button>
       <button class="btn ghost" data-act="mute">${save.muted ? '🔇 الصوت' : '🔊 الصوت'}</button>
     </div>
-    <p class="small">نسخة 28</p>`);
+    <p class="small">نسخة 29</p>`);
 }
 function showSolo() {
   state = 'solo';
@@ -1731,6 +1793,7 @@ overlay.addEventListener('click', e => {
   else if (a === 'vsjoin') vsStart('join');
   else if (a === 'vscancel') { netStop(true); showVsLobby(); }
   else if (a === 'spec') showSpecList();
+  else if (a === 'vsbegin') wsSend({ t: 'begin' });
   else if (a === 'specwatch') startSpectate(b.dataset.code);
   else if (a === 'vsquit') { netStop(true); idleWorld(); showVsResult(false, 'quit'); }
   else if (a === 'lvl') startRun(+b.dataset.n - 1);
@@ -1806,8 +1869,7 @@ function recomputeInput() {
   ['touchstart', 'touchmove', 'touchend'].forEach(t => pad.addEventListener(t, e => { if (e.cancelable) e.preventDefault(); }, { passive: false }));
 })();
 $('pauseBtn').addEventListener('click', () => { audio(); showPause(); });
-$('spec0').addEventListener('click', () => { SPEC.follow = SPEC.follow === 0 ? -1 : 0; updateSpecBar(); });
-$('spec1').addEventListener('click', () => { SPEC.follow = SPEC.follow === 1 ? -1 : 1; updateSpecBar(); });
+for (let i = 0; i < 4; i++) $('spec' + i).addEventListener('click', () => { SPEC.follow = SPEC.follow === i ? -1 : i; updateSpecBar(); });
 $('specExit').addEventListener('click', () => { audio(); SFX.click(); wsSend({ t: 'leave' }); showSpecList(); });
 
 const KEYS = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', Space: 'up', ArrowDown: 'down', KeyS: 'down' };
@@ -1830,7 +1892,7 @@ document.addEventListener('touchmove', e => { if (!e.target.closest || !e.target
 let last = performance.now(), T = 0;
 function frame(now) {
   const dt = Math.min(1 / 30, (now - last) / 1000); last = now; T += dt;
-  if (NET.on && NET.g) ghostFrame(NET.g, dt);
+  if (NET.on && NET.started) for (const seat in NET.ghosts) ghostFrame(NET.ghosts[seat], dt);
   if (state === 'vscount') {
     world.time = (performance.now() - NET.startAt) / 1000;
     const left = Math.ceil((NET.startAt - performance.now()) / 1000);
